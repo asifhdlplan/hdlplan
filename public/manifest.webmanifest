@@ -1,0 +1,31 @@
+{
+  "name": "HDL PLANNING",
+  "short_name": "HDL",
+  "description": "HDL Planning enterprise calculator",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#D8E4EC",
+  "theme_color": "#2F5F84",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/pwa-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

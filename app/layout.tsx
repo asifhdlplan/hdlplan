@@ -11,9 +11,15 @@ export const metadata: Metadata = {
   title: 'HDL PLANNING',
   description: 'HDL Planning',
   generator: 'HDL Planning',
+  manifest: '/manifest.webmanifest',
   icons: {
     icon: '/hdl-logo.png',
     apple: '/hdl-logo.png',
+  },
+  appleWebApp: {
+    capable: true,
+    title: 'HDL PLANNING',
+    statusBarStyle: 'default',
   },
 }
 

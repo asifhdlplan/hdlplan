@@ -1,10 +1,17 @@
 "use client"
 
-import { useState, useRef } from "react"
-import { HelpCircle, Printer, RefreshCw, Save, Search, Settings } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { Download, HelpCircle, Printer, RefreshCw, Save, Search, Settings } from "lucide-react"
+
+type BeforeInstallPromptEvent = Event & {
+  prompt: () => Promise<void>
+  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>
+}
 
 export default function HDLPlanning() {
   const [theme, setTheme] = useState<"dark" | "light">("light")
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
+  const [isInstalled, setIsInstalled] = useState(false)
 
   // Weft state
   const [weftInputs, setWeftInputs] = useState(
@@ -71,6 +78,48 @@ export default function HDLPlanning() {
 
   const toggleTheme = () => {
     setTheme(theme === "dark" ? "light" : "dark")
+  }
+
+  useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {})
+    }
+
+    const standalone =
+      window.matchMedia("(display-mode: standalone)").matches ||
+      (window.navigator as Navigator & { standalone?: boolean }).standalone === true
+    setIsInstalled(standalone)
+
+    const handleBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault()
+      setInstallPrompt(event as BeforeInstallPromptEvent)
+    }
+
+    const handleAppInstalled = () => {
+      setInstallPrompt(null)
+      setIsInstalled(true)
+    }
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt)
+    window.addEventListener("appinstalled", handleAppInstalled)
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt)
+      window.removeEventListener("appinstalled", handleAppInstalled)
+    }
+  }, [])
+
+  const installApp = async () => {
+    if (!installPrompt) return
+
+    await installPrompt.prompt()
+    const choice = await installPrompt.userChoice
+
+    if (choice.outcome === "accepted") {
+      setIsInstalled(true)
+    }
+
+    setInstallPrompt(null)
   }
 
   const calculateWeft = () => {
@@ -215,6 +264,19 @@ export default function HDLPlanning() {
             <button className={toolbarButtonClasses} aria-label="Help">
               <HelpCircle size={14} />
             </button>
+            <span className="mx-1 h-5 border-l border-[#8FA7B8]" />
+            <button
+              onClick={installApp}
+              disabled={!installPrompt || isInstalled}
+              className={`${toolbarButtonClasses} disabled:cursor-not-allowed disabled:opacity-55`}
+              aria-label="Install App"
+              title={isInstalled ? "Installed" : installPrompt ? "Install HDL Planning" : "Install available in Chrome after the app is ready"}
+            >
+              <Download size={14} />
+            </button>
+            <span className="text-[11px] font-bold text-[#1F4E79] mr-1">
+              {isInstalled ? "INSTALLED" : "INSTALL"}
+            </span>
             <span className="mx-1 h-5 border-l border-[#8FA7B8]" />
             <button
               onClick={toggleTheme}
