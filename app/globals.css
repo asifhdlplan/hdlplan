@@ -135,3 +135,113 @@ input[type="number"] {
   -moz-appearance: textfield;
   appearance: textfield;
 }
+
+@page {
+  size: A4 portrait;
+  margin: 7mm;
+}
+
+@media print {
+  html,
+  body {
+    width: 210mm;
+    min-height: 297mm;
+    background: #ffffff !important;
+    color: #111827 !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .hdl-print-root {
+    min-height: auto !important;
+    background: #ffffff !important;
+    color: #111827 !important;
+  }
+
+  .hdl-print-shell {
+    padding: 0 !important;
+  }
+
+  .hdl-print-header {
+    max-width: none !important;
+    margin: 0 0 3mm 0 !important;
+    box-shadow: none !important;
+  }
+
+  .hdl-print-header img {
+    width: 6mm !important;
+    height: 6mm !important;
+  }
+
+  .hdl-print-header h1 {
+    font-size: 11pt !important;
+  }
+
+  .hdl-print-cards {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 3mm !important;
+    max-width: none !important;
+    align-items: start !important;
+  }
+
+  .hdl-print-card {
+    min-width: 0 !important;
+    max-width: none !important;
+    padding: 2mm !important;
+    border: 1px solid #7f98aa !important;
+    box-shadow: none !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  .hdl-print-card h2 {
+    margin: -2mm -2mm 2mm -2mm !important;
+    padding: 1.5mm 2mm !important;
+    font-size: 8.5pt !important;
+  }
+
+  .hdl-print-card table {
+    margin-bottom: 2mm !important;
+    font-size: 7pt !important;
+  }
+
+  .hdl-print-card th,
+  .hdl-print-card td {
+    padding: 1mm !important;
+    line-height: 1.1 !important;
+  }
+
+  .hdl-print-card input {
+    padding: 0.8mm !important;
+    min-height: 0 !important;
+    font-size: 7pt !important;
+    background: #fff7c8 !important;
+    border: 1px solid #8a9ba8 !important;
+    color: #111827 !important;
+    box-shadow: none !important;
+  }
+
+  .hdl-print-card .grid {
+    gap: 1.5mm !important;
+  }
+
+  .hdl-print-card > div,
+  .hdl-print-card p {
+    font-size: 7pt !important;
+  }
+
+  .hdl-print-footer {
+    padding: 2mm 0 0 0 !important;
+    font-size: 7pt !important;
+  }
+
+  a {
+    color: inherit !important;
+    text-decoration: none !important;
+  }
+}

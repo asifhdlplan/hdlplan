@@ -8,10 +8,40 @@ type BeforeInstallPromptEvent = Event & {
   userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>
 }
 
+const ADMIN_PASSWORD = "0707"
+
+const DEFAULT_FORMULA_SETTINGS = {
+  weftRsAddition: 3,
+  weftBaseFactor: 0.00062,
+  weftMeterFactor: 0.91,
+  weftLessMultiplier: 0.98,
+  warpBaseFactor: 0.0006059,
+  warpLessMultiplier: 0.99,
+  forecastDyeMultiplier: 1.015,
+  forecastWeavingMultiplier: 0.91,
+  forecastMeterToYardDivisor: 0.9144,
+  forecastFinishingMultiplier: 0.88,
+  forecastInspectionMultiplier: 0.95726,
+  loomMinutesPerHour: 60,
+  loomEfficiency: 0.9,
+  loomYardDivisor: 36,
+  loomHoursPerDay: 24,
+}
+
+type FormulaSettings = typeof DEFAULT_FORMULA_SETTINGS
+
 export default function HDLPlanning() {
   const [theme, setTheme] = useState<"dark" | "light">("light")
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [isInstalled, setIsInstalled] = useState(false)
+  const [formulaSettings, setFormulaSettings] = useState<FormulaSettings>(DEFAULT_FORMULA_SETTINGS)
+  const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false)
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false)
+  const [adminPassword, setAdminPassword] = useState("")
+  const [adminError, setAdminError] = useState("")
+  const [isHelpOpen, setIsHelpOpen] = useState(false)
+  const [isSearchOpen, setIsSearchOpen] = useState(false)
+  const [selectedGlossaryIndex, setSelectedGlossaryIndex] = useState(0)
 
   // Weft state
   const [weftInputs, setWeftInputs] = useState(
@@ -80,6 +110,64 @@ export default function HDLPlanning() {
     setTheme(theme === "dark" ? "light" : "dark")
   }
 
+  const resetCalculatorData = () => {
+    setWeftInputs(
+      Array(6)
+        .fill(null)
+        .map(() => ({ count: "", ratio: "" }))
+    )
+    setPpi("")
+    setRs("")
+    setWLen("")
+    setWeftResults(Array(6).fill(0))
+    setWeftTotal(0)
+
+    setWarpInputs(
+      Array(6)
+        .fill(null)
+        .map(() => ({ count: "", ratio: "" }))
+    )
+    setTotalEnds("")
+    setWarpLength("")
+    setWarpEnds(Array(6).fill(0))
+    setWarpWeights(Array(6).fill(0))
+    setWarpTotal(0)
+
+    setForecastWarping("")
+    setForecastResults({
+      dye: 0,
+      siz: 0,
+      wev: 0,
+      fin: 0,
+      ins: 0,
+    })
+
+    setLoomRpm("")
+    setLoomPick("")
+    setLoomDay("")
+    setLoomProductionPerHour(0)
+    setLoomProductionForDay(0)
+  }
+
+  const printPage = () => {
+    window.print()
+  }
+
+  const savePageAsPdf = () => {
+    window.print()
+  }
+
+  useEffect(() => {
+    const savedSettings = window.localStorage.getItem("hdl-formula-settings")
+    if (!savedSettings) return
+
+    try {
+      setFormulaSettings({ ...DEFAULT_FORMULA_SETTINGS, ...JSON.parse(savedSettings) })
+    } catch {
+      window.localStorage.removeItem("hdl-formula-settings")
+    }
+  }, [])
+
   useEffect(() => {
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/sw.js").catch(() => {})
@@ -122,6 +210,49 @@ export default function HDLPlanning() {
     setInstallPrompt(null)
   }
 
+  const openAdminPanel = () => {
+    setIsAdminPanelOpen(true)
+    setAdminPassword("")
+    setAdminError("")
+  }
+
+  const closeAdminPanel = () => {
+    setIsAdminPanelOpen(false)
+    setIsAdminAuthenticated(false)
+    setAdminPassword("")
+    setAdminError("")
+  }
+
+  const unlockAdminPanel = () => {
+    if (adminPassword === ADMIN_PASSWORD) {
+      setIsAdminAuthenticated(true)
+      setAdminError("")
+      setAdminPassword("")
+      return
+    }
+
+    setAdminError("Invalid password")
+  }
+
+  const updateFormulaSetting = (key: keyof FormulaSettings, value: string) => {
+    const parsedValue = Number.parseFloat(value)
+    setFormulaSettings((current) => ({
+      ...current,
+      [key]: Number.isFinite(parsedValue) ? parsedValue : 0,
+    }))
+  }
+
+  const saveFormulaSettings = () => {
+    window.localStorage.setItem("hdl-formula-settings", JSON.stringify(formulaSettings))
+    setAdminError("Formula settings saved")
+  }
+
+  const resetFormulaSettings = () => {
+    setFormulaSettings(DEFAULT_FORMULA_SETTINGS)
+    window.localStorage.removeItem("hdl-formula-settings")
+    setAdminError("Formula settings reset")
+  }
+
   const calculateWeft = () => {
     const ppiVal = Number.parseFloat(ppi) || 0
     const rsVal = Number.parseFloat(rs) || 0
@@ -136,7 +267,14 @@ export default function HDLPlanning() {
 
     for (let i = 0; i < 6; i++) {
       if (sumRatio > 0 && counts[i] > 0) {
-        const rowWeight = (ppiVal * (rsVal + 3) * 0.00062 * lenVal * 0.91 * (ratios[i] / sumRatio)) / counts[i]
+        const rowWeight =
+          (ppiVal *
+            (rsVal + formulaSettings.weftRsAddition) *
+            formulaSettings.weftBaseFactor *
+            lenVal *
+            formulaSettings.weftMeterFactor *
+            (ratios[i] / sumRatio)) /
+          counts[i]
         results.push(rowWeight)
         total += rowWeight
       } else {
@@ -162,7 +300,7 @@ export default function HDLPlanning() {
 
     for (let i = 0; i < 6; i++) {
       const endVal = sumRatio > 0 ? totalEndsVal * (ratios[i] / sumRatio) : 0
-      const weight = counts[i] > 0 ? (lengthVal * endVal * 0.0006059) / counts[i] : 0
+      const weight = counts[i] > 0 ? (lengthVal * endVal * formulaSettings.warpBaseFactor) / counts[i] : 0
       ends.push(endVal)
       weights.push(weight)
       total += weight
@@ -175,11 +313,11 @@ export default function HDLPlanning() {
 
   const calculateForecast = () => {
     const warping = Number(forecastWarping) || 0
-    const dye = warping * 1.015
+    const dye = warping * formulaSettings.forecastDyeMultiplier
     const siz = dye
-    const wev = (siz * 0.91) / 0.9144
-    const fin = wev * 0.88
-    const ins = fin * 0.95726
+    const wev = formulaSettings.forecastMeterToYardDivisor > 0 ? (siz * formulaSettings.forecastWeavingMultiplier) / formulaSettings.forecastMeterToYardDivisor : 0
+    const fin = wev * formulaSettings.forecastFinishingMultiplier
+    const ins = fin * formulaSettings.forecastInspectionMultiplier
 
     setForecastResults({
       dye,
@@ -195,8 +333,11 @@ export default function HDLPlanning() {
     const pickVal = Number.parseFloat(loomPick) || 0
     const dayVal = Number.parseFloat(loomDay) || 0
 
-    const productionPerHour = pickVal > 0 ? (rpmVal * 60 * 0.9) / pickVal / 36 : 0
-    const productionForDay = productionPerHour * dayVal * 24
+    const productionPerHour =
+      pickVal > 0 && formulaSettings.loomYardDivisor > 0
+        ? (rpmVal * formulaSettings.loomMinutesPerHour * formulaSettings.loomEfficiency) / pickVal / formulaSettings.loomYardDivisor
+        : 0
+    const productionForDay = productionPerHour * dayVal * formulaSettings.loomHoursPerDay
 
     setLoomProductionPerHour(productionPerHour)
     setLoomProductionForDay(productionForDay)
@@ -227,12 +368,92 @@ export default function HDLPlanning() {
   const highlightResultClasses = "text-[#0F6F7F] font-bold bg-[#E5F2F4]"
   const summaryClasses =
     "mt-3 p-2.5 bg-[#DCE8F0] border border-[#8FA7B8] rounded-[2px] text-center text-[#1F4E79] font-bold shadow-[inset_1px_1px_0_rgba(255,255,255,0.9)]"
+  const adminFieldClasses = `w-full p-1.5 rounded-[1px] border text-right text-[12px] ${inputClasses}`
+  const formulaSections: {
+    title: string
+    formula: string
+    fields: { key: keyof FormulaSettings; label: string }[]
+  }[] = [
+    {
+      title: "Warp Calculation",
+      formula: "Weight = Length x Ends x Warp Factor / Count",
+      fields: [
+        { key: "warpBaseFactor", label: "Warp Factor" },
+        { key: "warpLessMultiplier", label: "Less KG Multiplier" },
+      ],
+    },
+    {
+      title: "Weft Calculation",
+      formula: "Weight = PPI x (RS + Add) x Base Factor x Length x Meter Factor x Ratio Share / Count",
+      fields: [
+        { key: "weftRsAddition", label: "RS Addition" },
+        { key: "weftBaseFactor", label: "Base Factor" },
+        { key: "weftMeterFactor", label: "Meter Factor" },
+        { key: "weftLessMultiplier", label: "Less KG Multiplier" },
+      ],
+    },
+    {
+      title: "Forecast Calculation",
+      formula: "Dyeing = Warping x Dye; Weaving = Sizing x Weaving / Meter-to-Yard; Finishing and Inspection use multipliers",
+      fields: [
+        { key: "forecastDyeMultiplier", label: "Dyeing Multiplier" },
+        { key: "forecastWeavingMultiplier", label: "Weaving Multiplier" },
+        { key: "forecastMeterToYardDivisor", label: "Meter-to-Yard Divisor" },
+        { key: "forecastFinishingMultiplier", label: "Finishing Multiplier" },
+        { key: "forecastInspectionMultiplier", label: "Inspection Multiplier" },
+      ],
+    },
+    {
+      title: "Loom Production",
+      formula: "Per Hour = RPM x Minutes x Efficiency / Pick / Yard Divisor; Day = Per Hour x Day x Hours",
+      fields: [
+        { key: "loomMinutesPerHour", label: "Minutes Per Hour" },
+        { key: "loomEfficiency", label: "Efficiency" },
+        { key: "loomYardDivisor", label: "Yard Divisor" },
+        { key: "loomHoursPerDay", label: "Hours Per Day" },
+      ],
+    },
+  ]
+  const glossaryItems = [
+    { title: "Warp", description: "The lengthwise yarns arranged on the loom before weaving starts." },
+    { title: "Weft", description: "The crosswise yarn inserted through the warp yarns during weaving." },
+    { title: "Yarn Count", description: "A numbering system used to determine yarn thickness or fineness." },
+    { title: "PPI (Picks Per Inch)", description: "The number of weft yarns inserted within one inch of fabric." },
+    { title: "EPI (Ends Per Inch)", description: "The number of warp yarns present within one inch of fabric width." },
+    { title: "GSM (Gram per Square Meter)", description: "The weight of fabric measured in grams per square meter." },
+    { title: "Warping", description: "The process of preparing warp yarns onto a beam before sizing and weaving." },
+    { title: "Sizing", description: "Applying protective chemicals on warp yarns to reduce breakage during weaving." },
+    { title: "Loom", description: "A machine used to interlace warp and weft yarns to produce fabric." },
+    { title: "Weaving", description: "The fabric manufacturing process where warp and weft yarns are interlaced." },
+    { title: "Reed", description: "A loom component used to maintain warp spacing and beat the weft into place." },
+    { title: "Heald / Harness", description: "A loom part that controls warp yarn movement during weaving." },
+    { title: "Beam", description: "A cylindrical roller used to hold warp yarns in the weaving process." },
+    { title: "Selvage", description: "The finished edge of fabric that prevents fraying." },
+    { title: "Fabric Construction", description: "The structural specification of fabric including yarn count, EPI, and PPI." },
+    { title: "Yarn Ratio", description: "The combination ratio of different yarn counts or materials used in fabric." },
+    { title: "Dyeing", description: "The process of adding color to yarn or fabric using dyes and chemicals." },
+    { title: "Finishing", description: "Final treatment processes applied to fabric for improved appearance and performance." },
+    { title: "Inspection", description: "The quality checking process for detecting fabric defects before delivery." },
+    { title: "Loom Efficiency", description: "The percentage of actual loom production compared to maximum possible production." },
+    { title: "RPM (Revolution Per Minute)", description: "The rotational speed of loom machinery during production." },
+    { title: "Production Forecast", description: "An estimated production output calculated from machine capacity and planning data." },
+    { title: "Fabric Width", description: "The usable width of fabric measured from one selvage to another." },
+    { title: "Shrinkage", description: "The reduction in fabric dimensions after washing or finishing processes." },
+    { title: "Yarn Consumption", description: "The quantity of yarn required to produce a specific amount of fabric." },
+    { title: "Grey Fabric", description: "Unfinished woven fabric before dyeing or finishing treatment." },
+    { title: "Process Loss", description: "Material loss occurring during textile manufacturing processes." },
+    { title: "Article Number", description: "A unique identification number assigned to a specific fabric style or construction." },
+    { title: "Planning", description: "The process of organizing production, yarn allocation, and delivery schedules." },
+    { title: "Inventory", description: "The available stock of yarn, fabric, or production materials in storage." },
+    { title: "Textile Manufacturing", description: "The complete industrial process of converting fiber into finished textile products." },
+  ]
+  const selectedGlossaryItem = glossaryItems[selectedGlossaryIndex]
 
   return (
-    <div className={`min-h-screen flex flex-col transition-colors duration-300 ${themeClasses}`}>
-      <div className="flex-1 p-3">
+    <div className={`hdl-print-root min-h-screen flex flex-col transition-colors duration-300 ${themeClasses}`}>
+      <div className="hdl-print-shell flex-1 p-3">
         {/* Header */}
-        <div className="max-w-[1240px] mx-auto mb-2 border border-[#6F8798] bg-[#C7D8E4] shadow-[inset_1px_1px_0_rgba(255,255,255,0.9)]">
+        <div className="hdl-print-header max-w-[1240px] mx-auto mb-2 border border-[#6F8798] bg-[#C7D8E4] shadow-[inset_1px_1px_0_rgba(255,255,255,0.9)]">
           <div className="flex justify-between items-center bg-gradient-to-b from-[#6F95B0] via-[#4E7898] to-[#2F5F84] text-white px-2 py-1 border-b border-[#244C69]">
             <div className="flex items-center gap-2">
               <img
@@ -244,24 +465,24 @@ export default function HDLPlanning() {
             </div>
             <div className="text-[11px] font-semibold">Enterprise Planning Console</div>
           </div>
-          <div className="flex flex-wrap items-center gap-1 px-2 py-1 border-t border-white/70 border-b border-[#8FA7B8] bg-gradient-to-b from-[#EEF4F8] to-[#C7D8E4]">
-            <button className={toolbarButtonClasses} aria-label="Save">
+          <div className="no-print flex flex-wrap items-center gap-1 px-2 py-1 border-t border-white/70 border-b border-[#8FA7B8] bg-gradient-to-b from-[#EEF4F8] to-[#C7D8E4]">
+            <button onClick={savePageAsPdf} className={toolbarButtonClasses} aria-label="Save as PDF" title="Save full page as A4 PDF">
               <Save size={14} />
             </button>
-            <button className={toolbarButtonClasses} aria-label="Print">
+            <button onClick={printPage} className={toolbarButtonClasses} aria-label="Print" title="Print A4 page">
               <Printer size={14} />
             </button>
-            <button className={toolbarButtonClasses} aria-label="Search">
+            <button onClick={() => setIsSearchOpen(true)} className={toolbarButtonClasses} aria-label="Search" title="Textile glossary">
               <Search size={14} />
             </button>
-            <button className={toolbarButtonClasses} aria-label="Refresh">
+            <button onClick={resetCalculatorData} className={toolbarButtonClasses} aria-label="Reset Data" title="Reset data">
               <RefreshCw size={14} />
             </button>
             <span className="mx-1 h-5 border-l border-[#8FA7B8]" />
-            <button className={toolbarButtonClasses} aria-label="Settings">
+            <button onClick={openAdminPanel} className={toolbarButtonClasses} aria-label="Settings" title="Admin Panel">
               <Settings size={14} />
             </button>
-            <button className={toolbarButtonClasses} aria-label="Help">
+            <button onClick={() => setIsHelpOpen(true)} className={toolbarButtonClasses} aria-label="Help" title="About HDL Planning">
               <HelpCircle size={14} />
             </button>
             <span className="mx-1 h-5 border-l border-[#8FA7B8]" />
@@ -293,9 +514,9 @@ export default function HDLPlanning() {
         </p>
 
         {/* Cards Container */}
-        <div className="flex gap-3 flex-wrap justify-center max-w-[1240px] mx-auto">
+        <div className="hdl-print-cards flex gap-3 flex-wrap justify-center max-w-[1240px] mx-auto">
           {/* Weft Calculation */}
-          <div className={`order-2 flex-1 min-w-[320px] max-w-[600px] ${cardClasses} p-3 rounded-[2px] border`}>
+          <div className={`hdl-print-card order-2 flex-1 min-w-[320px] max-w-[600px] ${cardClasses} p-3 rounded-[2px] border`}>
             <h2 className={sectionTitleClasses}>
               Weft Calculation
             </h2>
@@ -351,7 +572,7 @@ export default function HDLPlanning() {
                       {Math.round(weftResults[i])}
                     </td>
                     <td className={`text-center py-3 ${highlightResultClasses}`}>
-                      {Math.round(weftResults[i] * 0.98)}
+                      {Math.round(weftResults[i] * formulaSettings.weftLessMultiplier)}
                     </td>
                   </tr>
                 ))}
@@ -397,7 +618,7 @@ export default function HDLPlanning() {
             </div>
             <button
               onClick={calculateWeft}
-              className={buttonClasses}
+              className={`no-print ${buttonClasses}`}
             >
               Calculate Weft
             </button>
@@ -407,7 +628,7 @@ export default function HDLPlanning() {
           </div>
 
           {/* Warp Calculation */}
-          <div className={`order-1 flex-1 min-w-[320px] max-w-[600px] ${cardClasses} p-3 rounded-[2px] border`}>
+          <div className={`hdl-print-card order-1 flex-1 min-w-[320px] max-w-[600px] ${cardClasses} p-3 rounded-[2px] border`}>
             <h2 className={sectionTitleClasses}>
               Warp Calculation
             </h2>
@@ -467,7 +688,7 @@ export default function HDLPlanning() {
                       {Math.round(warpWeights[i])}
                     </td>
                     <td className={`text-center py-3 ${highlightResultClasses}`}>
-                      {Math.round(warpWeights[i] * 0.99)}
+                      {Math.round(warpWeights[i] * formulaSettings.warpLessMultiplier)}
                     </td>
                   </tr>
                 ))}
@@ -501,7 +722,7 @@ export default function HDLPlanning() {
             </div>
             <button
               onClick={calculateWarp}
-              className={buttonClasses}
+              className={`no-print ${buttonClasses}`}
             >
               Calculate Warp
             </button>
@@ -511,7 +732,7 @@ export default function HDLPlanning() {
           </div>
 
           {/* Production Forecast */}
-          <div className={`order-3 flex-1 min-w-[320px] max-w-[600px] ${cardClasses} p-3 rounded-[2px] border`}>
+          <div className={`hdl-print-card order-3 flex-1 min-w-[320px] max-w-[600px] ${cardClasses} p-3 rounded-[2px] border`}>
             <h2 className={sectionTitleClasses}>
               Production Forecast
             </h2>
@@ -573,14 +794,14 @@ export default function HDLPlanning() {
             </table>
             <button
               onClick={calculateForecast}
-              className={buttonClasses}
+              className={`no-print ${buttonClasses}`}
             >
               Calculate Forecast
             </button>
           </div>
 
           {/* Loom Production Calculator */}
-          <div className={`order-4 flex-1 min-w-[320px] max-w-[600px] ${cardClasses} p-3 rounded-[2px] border`}>
+          <div className={`hdl-print-card order-4 flex-1 min-w-[320px] max-w-[600px] ${cardClasses} p-3 rounded-[2px] border`}>
             <h2 className={sectionTitleClasses}>
               Loom Production Calculator
             </h2>
@@ -624,7 +845,7 @@ export default function HDLPlanning() {
             </div>
             <button
               onClick={calculateLoomProduction}
-              className={buttonClasses}
+              className={`no-print ${buttonClasses}`}
             >
               Calculate Loom Production
             </button>
@@ -640,8 +861,212 @@ export default function HDLPlanning() {
         </div>
       </div>
 
+      {isAdminPanelOpen && (
+        <div className="no-print fixed inset-0 z-50 flex items-center justify-center bg-[#1F2F3A]/45 p-3">
+          <div className="w-full max-w-[860px] max-h-[88vh] overflow-auto border border-[#5F7789] bg-[#D8E4EC] shadow-[0_8px_24px_rgba(20,35,48,0.38)]">
+            <div className="flex items-center justify-between bg-gradient-to-b from-[#6F95B0] via-[#4E7898] to-[#2F5F84] px-2 py-1 text-white border-b border-[#244C69]">
+              <div className="text-[13px] font-bold">ADMIN PANEL - FORMULA MAINTENANCE</div>
+              <button
+                onClick={closeAdminPanel}
+                className="h-6 px-2 bg-gradient-to-b from-[#EEF4F8] to-[#BFD3E1] text-[#1F2F3A] border border-[#6F8798] text-[11px] font-bold"
+              >
+                X
+              </button>
+            </div>
+
+            {!isAdminAuthenticated ? (
+              <div className="m-3 border border-[#8FA7B8] bg-[#EEF4F8] p-3 shadow-[inset_1px_1px_0_rgba(255,255,255,0.9)]">
+                <div className="mb-3 bg-gradient-to-b from-[#DCE8F0] to-[#B8CCD9] border border-[#8FA7B8] px-2 py-1 text-[12px] font-bold text-[#1F2F3A]">
+                  Password Required
+                </div>
+                <div className="grid grid-cols-[130px_1fr] items-center gap-2 text-[12px] max-w-[420px]">
+                  <label htmlFor="admin-password" className="font-bold">
+                    Password
+                  </label>
+                  <input
+                    id="admin-password"
+                    type="password"
+                    value={adminPassword}
+                    onChange={(e) => setAdminPassword(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") unlockAdminPanel()
+                    }}
+                    className={adminFieldClasses}
+                    autoFocus
+                  />
+                </div>
+                {adminError && <div className="mt-2 text-[12px] font-bold text-[#8A3B2D]">{adminError}</div>}
+                <div className="mt-3 flex gap-2">
+                  <button onClick={unlockAdminPanel} className={`${buttonClasses} mt-0 max-w-[130px] py-1.5`}>
+                    Enter
+                  </button>
+                  <button onClick={closeAdminPanel} className={`${buttonClasses} mt-0 max-w-[130px] py-1.5`}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="m-3 space-y-3">
+                <div className="border border-[#8FA7B8] bg-[#EEF4F8] p-2 text-[12px] shadow-[inset_1px_1px_0_rgba(255,255,255,0.9)]">
+                  Edit formula constants below. Values are used immediately in calculations; press Save to keep them in this browser.
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  {formulaSections.map((section) => (
+                    <div key={section.title} className="border border-[#8FA7B8] bg-[#EEF4F8] shadow-[inset_1px_1px_0_rgba(255,255,255,0.9)]">
+                      <div className="bg-gradient-to-b from-[#DCE8F0] to-[#B8CCD9] border-b border-[#8FA7B8] px-2 py-1 text-[12px] font-bold text-[#1F2F3A]">
+                        {section.title}
+                      </div>
+                      <div className="p-2">
+                        <div className="mb-2 border border-[#BFD3E1] bg-[#F7FAFC] p-2 text-[11px] font-semibold text-[#395466]">
+                          {section.formula}
+                        </div>
+                        <div className="space-y-2">
+                          {section.fields.map((field) => (
+                            <div key={field.key} className="grid grid-cols-[1fr_120px] items-center gap-2 text-[12px]">
+                              <label className="font-bold">{field.label}</label>
+                              <input
+                                type="number"
+                                step="any"
+                                value={formulaSettings[field.key]}
+                                onChange={(e) => updateFormulaSetting(field.key, e.target.value)}
+                                className={adminFieldClasses}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {adminError && <div className="text-[12px] font-bold text-[#1F4E79]">{adminError}</div>}
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={saveFormulaSettings} className={`${buttonClasses} mt-0 max-w-[150px] py-1.5`}>
+                    Save
+                  </button>
+                  <button onClick={resetFormulaSettings} className={`${buttonClasses} mt-0 max-w-[150px] py-1.5`}>
+                    Reset
+                  </button>
+                  <button onClick={closeAdminPanel} className={`${buttonClasses} mt-0 max-w-[150px] py-1.5`}>
+                    Close
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {isHelpOpen && (
+        <div className="no-print fixed inset-0 z-50 flex items-center justify-center bg-[#1F2F3A]/45 p-3">
+          <div className="w-full max-w-[760px] max-h-[88vh] overflow-auto border border-[#5F7789] bg-[#D8E4EC] shadow-[0_8px_24px_rgba(20,35,48,0.38)]">
+            <div className="flex items-center justify-between bg-gradient-to-b from-[#6F95B0] via-[#4E7898] to-[#2F5F84] px-2 py-1 text-white border-b border-[#244C69]">
+              <div className="text-[13px] font-bold">HDL PLANNING - HELP</div>
+              <button
+                onClick={() => setIsHelpOpen(false)}
+                className="h-6 px-2 bg-gradient-to-b from-[#EEF4F8] to-[#BFD3E1] text-[#1F2F3A] border border-[#6F8798] text-[11px] font-bold"
+              >
+                X
+              </button>
+            </div>
+            <div className="m-3 border border-[#8FA7B8] bg-[#EEF4F8] p-3 text-[12px] leading-relaxed shadow-[inset_1px_1px_0_rgba(255,255,255,0.9)]">
+              <h2 className="mb-3 bg-gradient-to-b from-[#DCE8F0] to-[#B8CCD9] border border-[#8FA7B8] px-2 py-1 text-[13px] font-bold text-[#1F2F3A]">
+                HDL Planning - Enterprise Planning Console
+              </h2>
+              <p className="mb-3">
+                HDL Planning is a professional textile production planning and calculation platform designed for weaving and fabric manufacturing industries. The system helps production planners, merchandisers, and textile engineers calculate yarn consumption, forecast production stages, and estimate loom output efficiently through a clean and interactive dashboard.
+              </p>
+              <p className="mb-3">
+                The platform includes dedicated modules for Warp Calculation and Weft Calculation, where users can input yarn count, ratio, ends, PPI, RS, and fabric length to automatically calculate yarn weight and process losses. It also features a Production Forecast section that estimates production quantities for different stages including Warping, Dyeing, Sizing, Weaving, Finishing, and Inspection.
+              </p>
+              <p className="mb-3">
+                Additionally, the integrated Loom Production Calculator allows users to calculate loom production based on RPM, pick, and working days, helping improve planning accuracy and production efficiency.
+              </p>
+              <div className="mb-2 bg-gradient-to-b from-[#DCE8F0] to-[#B8CCD9] border border-[#8FA7B8] px-2 py-1 text-[12px] font-bold text-[#1F2F3A]">
+                Key Features:
+              </div>
+              <ul className="mb-3 list-disc pl-5">
+                <li>Warp yarn consumption calculation</li>
+                <li>Weft yarn consumption calculation</li>
+                <li>Automatic production forecasting</li>
+                <li>Loom production estimation</li>
+                <li>User-friendly enterprise dashboard</li>
+                <li>Accurate textile planning support</li>
+                <li>Professional industrial interface</li>
+              </ul>
+              <p>
+                HDL Planning is built to simplify textile production planning, reduce manual calculation errors, and improve operational decision-making for modern textile manufacturing environments.
+              </p>
+            </div>
+            <div className="m-3 mt-0 flex justify-end">
+              <button onClick={() => setIsHelpOpen(false)} className={`${buttonClasses} mt-0 max-w-[130px] py-1.5`}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isSearchOpen && (
+        <div className="no-print fixed inset-0 z-50 flex items-center justify-center bg-[#1F2F3A]/45 p-3">
+          <div className="w-full max-w-[840px] max-h-[88vh] overflow-hidden border border-[#5F7789] bg-[#D8E4EC] shadow-[0_8px_24px_rgba(20,35,48,0.38)]">
+            <div className="flex items-center justify-between bg-gradient-to-b from-[#6F95B0] via-[#4E7898] to-[#2F5F84] px-2 py-1 text-white border-b border-[#244C69]">
+              <div className="text-[13px] font-bold">TEXTILE TERM SEARCH</div>
+              <button
+                onClick={() => setIsSearchOpen(false)}
+                className="h-6 px-2 bg-gradient-to-b from-[#EEF4F8] to-[#BFD3E1] text-[#1F2F3A] border border-[#6F8798] text-[11px] font-bold"
+              >
+                X
+              </button>
+            </div>
+            <div className="grid max-h-[78vh] grid-cols-[250px_1fr] gap-3 overflow-hidden p-3 max-md:grid-cols-1">
+              <div className="min-h-0 border border-[#8FA7B8] bg-[#EEF4F8] shadow-[inset_1px_1px_0_rgba(255,255,255,0.9)]">
+                <div className="bg-gradient-to-b from-[#DCE8F0] to-[#B8CCD9] border-b border-[#8FA7B8] px-2 py-1 text-[12px] font-bold text-[#1F2F3A]">
+                  Titles
+                </div>
+                <div className="max-h-[64vh] overflow-auto p-1">
+                  {glossaryItems.map((item, index) => (
+                    <button
+                      key={item.title}
+                      onClick={() => setSelectedGlossaryIndex(index)}
+                      className={`block w-full border px-2 py-1 text-left text-[12px] font-bold ${
+                        selectedGlossaryIndex === index
+                          ? "border-[#6F8798] bg-[#FFF7C8] text-[#1F2F3A]"
+                          : "border-transparent bg-transparent text-[#1F4E79] hover:border-[#8FA7B8] hover:bg-[#DCE8F0]"
+                      }`}
+                    >
+                      {item.title}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="border border-[#8FA7B8] bg-[#EEF4F8] shadow-[inset_1px_1px_0_rgba(255,255,255,0.9)]">
+                <div className="bg-gradient-to-b from-[#DCE8F0] to-[#B8CCD9] border-b border-[#8FA7B8] px-2 py-1 text-[12px] font-bold text-[#1F2F3A]">
+                  Description
+                </div>
+                <div className="p-3">
+                  <h2 className="mb-3 border border-[#8FA7B8] bg-[#FFF7C8] px-2 py-1 text-[14px] font-bold text-[#1F2F3A]">
+                    {selectedGlossaryItem.title}
+                  </h2>
+                  <p className="border border-[#BFD3E1] bg-[#F7FAFC] p-3 text-[13px] leading-relaxed text-[#1F2F3A]">
+                    {selectedGlossaryItem.description}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end border-t border-[#8FA7B8] bg-[#C7D8E4] p-2">
+              <button onClick={() => setIsSearchOpen(false)} className={`${buttonClasses} mt-0 max-w-[130px] py-1.5`}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Footer */}
-      <footer className="p-4 text-center opacity-85 text-[11px]">
+      <footer className="hdl-print-footer p-4 text-center opacity-85 text-[11px]">
         <p className="mb-2">
           &copy; {new Date().getFullYear()} <span className="font-semibold">Asif</span>. All Rights Reserved.
         </p>
@@ -698,7 +1123,7 @@ export default function HDLPlanning() {
         href="https://wa.me/+8801748460707"
         target="_blank"
         rel="noopener noreferrer"
-        className="fixed bottom-4 right-4 bg-gradient-to-b from-[#EEF4F8] to-[#BFD3E1] hover:from-[#FFF7C8] hover:to-[#D6E4EE] text-[#1F2F3A] w-11 h-11 border border-[#6F8798] flex items-center justify-center text-xl shadow-[inset_1px_1px_0_rgba(255,255,255,0.9),0_1px_2px_rgba(40,55,68,0.24)] transition-colors"
+        className="no-print fixed bottom-4 right-4 bg-gradient-to-b from-[#EEF4F8] to-[#BFD3E1] hover:from-[#FFF7C8] hover:to-[#D6E4EE] text-[#1F2F3A] w-11 h-11 border border-[#6F8798] flex items-center justify-center text-xl shadow-[inset_1px_1px_0_rgba(255,255,255,0.9),0_1px_2px_rgba(40,55,68,0.24)] transition-colors"
         aria-label="Contact on WhatsApp"
       >
         <svg className="w-7 h-7" fill="currentColor" viewBox="0 0 24 24">
